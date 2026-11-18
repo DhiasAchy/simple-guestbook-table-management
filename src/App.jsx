@@ -288,74 +288,6 @@ export default function EventApp() {
     e.target.value = null;
   };
 
-  // --- INTEGRASI PRINTER THERMAL 58mm (RAWBT / BROWSER) ---
-  const printReceipt = (guest) => {
-    const dateStr = new Date().toLocaleString("id-ID", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    });
-
-    const printText =
-      `================================
-   DIGITAL GUESTBOOK INVITATION
-================================
-Tamu    : ${guest.name}
-Kategori: ${guest.category || 'General'}
-Jumlah  : ${guest.pax || 1} Pax
-Meja    : ${guest.table || 'Belum diatur'}
-Waktu   : ${dateStr}
---------------------------------
-Terima kasih atas kehadiran 
-dan doa restu Anda.
-================================
-`;
-
-    // Jika terhubung via Web Bluetooth API
-    if (bluetoothDevice) {
-      setPrintStatus(`Mencetak struk untuk ${guest.name}...`);
-      // Tambahkan logika kirim ke characteristic jika menggunakan Web Bluetooth langsung
-      return;
-    }
-
-    // Coba protokol RawBT (Android) atau fallback window.print
-    try {
-      const encodedText = encodeURI(printText);
-      const rawbtUrl = `rawbt:data:text/plain;charset=utf-8,${encodedText}`;
-      window.location.href = rawbtUrl;
-    } catch (error) {
-      console.warn("RawBT tidak terdeteksi, menggunakan cetak standar browser.", error);
-      const printWindow = window.open('', '_blank', 'width=300,height=600');
-      printWindow.document.write(`
-        <html>
-          <head>
-            <title>Cetak Struk - ${guest.name}</title>
-            <style>
-              body { font-family: monospace; font-size: 12px; width: 200px; padding: 10px; }
-              h3 { text-align: center; margin-bottom: 5px; }
-              hr { border: dashed 1px #000; }
-            </style>
-          </head>
-          <body>
-            <h3>Digital Guestbook</h3>
-            <hr/>
-            <p><strong>Tamu:</strong> ${guest.name}<br/>
-            <strong>Kategori:</strong> ${guest.category || 'General'}<br/>
-            <strong>Meja:</strong> ${guest.table || '-'}<br/>
-            <strong>Waktu:</strong> ${dateStr}</p>
-            <hr/>
-            <p style="text-align: center;">Terima kasih</p>
-          </body>
-        </html>
-      `);
-      printWindow.document.close();
-      printWindow.focus();
-      setTimeout(() => {
-        printWindow.print();
-        printWindow.close();
-      }, 250);
-    }
-  };
-
   // --- LOGIKA DRAG & DROP KANVAS LUAS (MODE 1) ---
   const handleMouseDown = (e, tableName) => {
     e.stopPropagation();
@@ -480,6 +412,14 @@ dan doa restu Anda.
     } catch (error) {
       setPrintStatus('Koneksi printer dibatalkan / gagal.');
     }
+  };
+
+  const printReceipt = (guest) => {
+    if (!bluetoothDevice) {
+      console.log(`[Simulasi Struk]: Cetak untuk ${guest.name} -> Meja: ${guest.table}`);
+      return;
+    }
+    setPrintStatus(`Mencetak struk untuk ${guest.name}...`);
   };
 
   const processCheckIn = async (guestIdentifier, customTable = null) => {
@@ -828,7 +768,8 @@ dan doa restu Anda.
                             <button
                               key={g.id}
                               onClick={() => processCheckIn(g.id)}
-                              className={`text-[10px] px-2.5 py-1 rounded font-medium ${g.status === 'Sudah Hadir' ? 'bg-emerald-800 text-emerald-100' : 'bg-stone-700 hover:bg-stone-600 text-white'}`}
+                              className={`text-[10px] px-2.5 py-1 rounded font-medium ${g.status === 'Sudah Hadir' ? 'bg-emerald-800 text-emerald-100' : 'bg-stone-700 hover:bg-stone-600 text-white'
+                                }`}
                             >
                               {g.name.split(' ')[0]} {g.status === 'Sudah Hadir' && '✓'}
                             </button>
@@ -837,245 +778,557 @@ dan doa restu Anda.
                       </div>
                     )}
 
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="Ketik nama, ID, atau No HP tamu..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full bg-white border border-stone-200 rounded-xl px-3.5 py-2.5 text-xs focus:outline-none focus:ring-1 focus:ring-stone-400"
-                      />
-                    </div>
+                    <label className="block text-[11px] font-medium text-stone-600 uppercase tracking-wide mb-1.5">
+                      Pencarian Tamu (Nama / ID / No. HP)
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Cari Budi, G-001, 0812..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-stone-400"
+                    />
 
                     {filteredGuests.length > 0 && (
-                      <div className="mt-2 bg-white border border-stone-200 rounded-xl shadow-lg max-h-52 overflow-y-auto divide-y divide-stone-100">
-                        {filteredGuests.map(g => (
-                          <div key={g.id} className="p-3 flex justify-between items-center hover:bg-stone-50">
-                            <div>
-                              <p className="text-xs font-semibold text-stone-900">{g.name}</p>
-                              <p className="text-[10px] text-stone-500">{g.id} • {g.table} • {g.phone}</p>
+                      <div className="mt-3 divide-y divide-stone-100 max-h-60 overflow-y-auto">
+                        {filteredGuests.map(guest => {
+                          const occupancy = getTableOccupancy(guest.table);
+                          return (
+                            <div key={guest.id} className="py-3 flex flex-col gap-2">
+                              <div className="flex justify-between items-start">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-medium text-xs text-stone-900">{guest.name}</p>
+                                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${getCategoryBadge(guest.category)}`}>
+                                      {guest.category}
+                                    </span>
+                                  </div>
+                                  <p className="text-[11px] text-stone-500 mt-0.5">
+                                    ID: {guest.id} • 📱 {guest.phone} {eventMode === 'mode1' && `• Meja: ${guest.table}`}
+                                  </p>
+                                  {guest.status === 'Sudah Hadir' && (
+                                    <p className="text-[10px] font-semibold text-emerald-700 mt-0.5">
+                                      ✓ Sudah Check-In pukul {guest.checkInTime} {guest.isPendingSync && '(Menunggu Sinyal Sync)'}
+                                    </p>
+                                  )}
+                                  {eventMode === 'mode1' && (
+                                    <p className={`text-[10px] font-medium mt-0.5 ${occupancy.isFull ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                      {occupancy.isFull ? `⚠️ Penuh (${occupancy.count}/${occupancy.max})` : `🟢 Tersedia (${occupancy.count}/${occupancy.max})`}
+                                    </p>
+                                  )}
+                                </div>
+                                <button
+                                  onClick={() => processCheckIn(guest.id)}
+                                  className="bg-stone-900 hover:bg-stone-800 text-white text-[11px] font-medium px-3 py-1.5 rounded-lg"
+                                >
+                                  Check-In
+                                </button>
+                              </div>
+
+                              {eventMode === 'mode1' && (
+                                <div className="bg-white p-2 rounded-xl border border-stone-200/80 flex flex-col gap-1">
+                                  <span className="text-[10px] text-stone-500">Ubah Meja (Baku):</span>
+                                  {editingGuestId === guest.id ? (
+                                    <div className="flex gap-1">
+                                      <select
+                                        value={selectedTableDropdown}
+                                        onChange={(e) => setSelectedTableDropdown(e.target.value)}
+                                        className="text-xs p-1 border border-stone-200 rounded w-full bg-white"
+                                      >
+                                        <option value="">-- Pilih Meja --</option>
+                                        {masterTables.map(tbl => {
+                                          const occ = getTableOccupancy(tbl.name);
+                                          return (
+                                            <option key={tbl.name} value={tbl.name}>
+                                              {tbl.name} ({occ.count}/{occ.capacity})
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                      <button onClick={() => handleSaveDropdownTable(guest.id)} className="bg-stone-900 text-white text-[10px] px-2 rounded">
+                                        Simpan
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button onClick={() => { setEditingGuestId(guest.id); setSelectedTableDropdown(guest.table); }} className="text-[11px] text-stone-600 underline text-left">
+                                      Atur Meja Khusus
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                            <button
-                              onClick={() => processCheckIn(g.id)}
-                              className={`text-[10px] px-3 py-1.5 rounded-lg font-medium ${g.status === 'Sudah Hadir' ? 'bg-emerald-100 text-emerald-800' : 'bg-stone-900 text-white'}`}
-                            >
-                              {g.status === 'Sudah Hadir' ? 'Hadir (Check-In Lagi)' : 'Check-In'}
-                            </button>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
 
-                  {/* Hasil Scan / Info Tamu Terakhir */}
-                  {scanResult && (
-                    <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl mb-4">
-                      <div className="flex justify-between items-start mb-2">
-                        <div>
-                          <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide">✓ Check-In Berhasil</span>
-                          <h3 className="font-bold text-sm text-emerald-950 mt-0.5">{scanResult.name}</h3>
-                        </div>
-                        <span className="text-[10px] bg-emerald-200 text-emerald-900 px-2 py-0.5 rounded-full font-mono">{scanResult.checkInTime}</span>
+                  {scanResult ? (
+                    <div className="bg-stone-50 border border-stone-200 p-4 rounded-2xl text-center mb-4">
+                      <span className={`text-[10px] font-medium px-2.5 py-0.5 rounded-full ${scanResult.isPendingSync ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                        {scanResult.isPendingSync ? 'Tersimpan Lokal (Menunggu Sinyal Sync)' : 'Check-In Berhasil & Tersinkron Cloud'}
+                      </span>
+                      <h2 className="text-base font-semibold text-stone-900 mt-2">{scanResult.name}</h2>
+                      <div className="mt-2 bg-white p-2.5 rounded-xl border border-stone-200">
+                        <p className="text-[10px] text-stone-400">STATUS KEHADIRAN:</p>
+                        <p className="text-lg font-bold text-stone-900">
+                          {eventMode === 'mode1' ? `Meja: ${scanResult.table}` : 'Tamu Diterima ✓'}
+                        </p>
                       </div>
-                      <div className="text-xs text-emerald-800 space-y-1 mb-3">
-                        <p>ID: <b>{scanResult.id}</b> | Kategori: <b>{scanResult.category}</b></p>
-                        <p>Meja Teralokasi: <b>{scanResult.table}</b></p>
-                      </div>
-                      <button
-                        onClick={() => printReceipt(scanResult)}
-                        className="w-full bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold py-2 rounded-xl transition shadow-sm flex items-center justify-center gap-1.5"
-                      >
-                        <span>🖨️</span> Cetak Struk Meja 58mm
-                      </button>
+                    </div>
+                  ) : (
+                    <div className="bg-stone-50 border border-dashed border-stone-300 p-4 rounded-2xl text-center text-stone-400 text-xs mb-4">
+                      {isLoading ? 'Menghubungkan ke Cloud Database...' : 'Gunakan kamera atau kolom pencarian di atas.'}
                     </div>
                   )}
                 </>
               ) : (
-                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
-                  {guestList.filter(g => g.status === 'Sudah Hadir').length === 0 ? (
-                    <p className="text-center text-xs text-stone-400 py-12">Belum ada tamu yang check-in.</p>
+                <div className="bg-stone-50 border border-stone-200/60 p-4 rounded-2xl mb-4">
+                  <h3 className="font-semibold text-xs text-stone-700 uppercase tracking-wide mb-3">Log Kehadiran Tamu (Real-Time)</h3>
+                  {arrivedCount === 0 ? (
+                    <p className="text-xs text-stone-400 text-center py-6">Belum ada tamu hadir.</p>
                   ) : (
-                    guestList.filter(g => g.status === 'Sudah Hadir').map(g => (
-                      <div key={g.id} className="bg-stone-50 border border-stone-200/60 p-3.5 rounded-xl flex justify-between items-center">
-                        <div>
-                          <p className="text-xs font-semibold text-stone-900">{g.name}</p>
-                          <p className="text-[10px] text-stone-500">{g.table} • Pukul {g.checkInTime}</p>
+                    <div className="divide-y divide-stone-100 max-h-96 overflow-y-auto">
+                      {guestList.filter(g => g.status === 'Sudah Hadir').map(g => (
+                        <div key={g.id} className="py-2.5 flex justify-between items-center text-xs">
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-medium text-stone-900">{g.name}</p>
+                              {g.isPendingSync && (
+                                <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded font-medium">
+                                  Antre Sync
+                                </span>
+                              )}
+                            </div>
+                            {eventMode === 'mode1' && <p className="text-[11px] text-stone-500">Meja: <span className="text-stone-900">{g.table}</span></p>}
+                          </div>
+                          <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">{g.checkInTime}</span>
                         </div>
-                        <button
-                          onClick={() => printReceipt(g)}
-                          className="text-[10px] bg-white border border-stone-200 hover:bg-stone-100 px-2.5 py-1.5 rounded-lg text-stone-700 font-medium"
-                        >
-                          🖨️ Cetak
-                        </button>
-                      </div>
-                    ))
+                      ))}
+                    </div>
                   )}
                 </div>
               )}
             </>
           ) : (
-            // ================= TAMPILAN ADMIN =================
+            /* ================= TAMPILAN ADMIN DASHBOARD ================= */
             <div className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-stone-50 border border-stone-200/60 p-4 rounded-2xl">
-                  <span className="text-[11px] text-stone-500 font-medium">Total Tamu Diundang</span>
-                  <h2 className="text-2xl font-bold text-stone-900 mt-1">{guestList.length}</h2>
-                </div>
-                <div className="bg-stone-50 border border-stone-200/60 p-4 rounded-2xl">
-                  <span className="text-[11px] text-stone-500 font-medium">Sudah Check-In (Hadir)</span>
-                  <h2 className="text-2xl font-bold text-emerald-700 mt-1">{arrivedCount}</h2>
-                </div>
-                <div className="bg-stone-50 border border-stone-200/60 p-4 rounded-2xl flex flex-col justify-between">
-                  <span className="text-[11px] text-stone-500 font-medium">Aksi Cepat Data</span>
-                  <div className="flex gap-2 mt-2">
-                    <button onClick={handleSeedInitialData} className="flex-1 bg-stone-200 hover:bg-stone-300 text-stone-800 text-[10px] font-semibold py-1.5 rounded-lg">
-                      Muat Simulasi
-                    </button>
-                    <button onClick={handleResetAllCheckIns} className="flex-1 bg-rose-100 hover:bg-rose-200 text-rose-800 text-[10px] font-semibold py-1.5 rounded-lg">
-                      Reset Hadir
-                    </button>
-                  </div>
-                </div>
-              </div>
 
-              {/* Form & Manajemen Tamu */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="bg-stone-50 border border-stone-200/60 p-5 rounded-2xl space-y-4">
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500">Tambah Tamu Baru</h3>
-                  <form onSubmit={handleAddGuest} className="space-y-3">
-                    <input
-                      type="text"
-                      placeholder="Nama Lengkap *"
-                      value={newGuest.name}
-                      onChange={e => setNewGuest({ ...newGuest, name: e.target.value })}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs"
-                      required
-                    />
-                    <select
-                      value={newGuest.category}
-                      onChange={e => setNewGuest({ ...newGuest, category: e.target.value })}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs"
+              <header className="bg-stone-50 border border-stone-200/80 p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h1 className="font-bold text-lg text-stone-900 tracking-tight">
+                    {eventMode === 'mode1' ? 'Admin Dashboard — Custom Floor Plan' : 'Admin Dashboard — Standar'}
+                  </h1>
+                  <p className="text-xs text-stone-500 mt-0.5">
+                    Database Cloud Real-Time • E-Ticket URL Slug & Broadcast Email/WA.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  {guestList.length === 0 && (
+                    <button
+                      onClick={handleSeedInitialData}
+                      className="bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium px-3 py-2 rounded-xl shadow-sm transition"
                     >
-                      <option value="Reguler">Kategori: Reguler</option>
-                      <option value="VIP">Kategori: VIP</option>
-                      <option value="Keluarga">Kategori: Keluarga</option>
-                    </select>
-                    <input
-                      type="text"
-                      placeholder="No HP (WhatsApp: 0812...)"
-                      value={newGuest.phone}
-                      onChange={e => setNewGuest({ ...newGuest, phone: e.target.value })}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs"
-                    />
-                    <input
-                      type="email"
-                      placeholder="Alamat Email"
-                      value={newGuest.email}
-                      onChange={e => setNewGuest({ ...newGuest, email: e.target.value })}
-                      className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs"
-                    />
-                    {eventMode === 'mode1' && (
-                      <select
-                        value={newGuest.table}
-                        onChange={e => setNewGuest({ ...newGuest, table: e.target.value })}
-                        className="w-full bg-white border border-stone-200 rounded-xl px-3 py-2 text-xs"
-                      >
-                        {masterTables.map(t => (
-                          <option key={t.name} value={t.name}>{t.name} (Kapasitas: {t.capacity})</option>
-                        ))}
-                      </select>
-                    )}
-                    <button type="submit" className="w-full bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold py-2.5 rounded-xl transition">
-                      Simpan ke Cloud
+                      + Muat Data Simulasi Awal
                     </button>
-                  </form>
-
-                  <div className="pt-3 border-t border-stone-200">
-                    <label className="block text-[11px] font-medium text-stone-500 mb-1.5">Import CSV Massal:</label>
-                    <input type="file" accept=".csv" onChange={handleFileUpload} className="w-full text-[10px] text-stone-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-[10px] file:font-semibold file:bg-stone-200 file:text-stone-700 hover:file:bg-stone-300" />
+                  )}
+                  <button
+                    onClick={handleResetAllCheckIns}
+                    className="bg-white hover:bg-stone-100 text-stone-700 border border-stone-200 text-xs font-medium px-3 py-2 rounded-xl transition"
+                  >
+                    Reset Kehadiran
+                  </button>
+                  <div className="flex gap-4 bg-white px-4 py-2 rounded-xl border border-stone-200">
+                    <div>
+                      <p className="text-[10px] text-stone-400 uppercase font-medium">Total Tamu</p>
+                      <p className="text-sm font-bold text-stone-900">{guestList.length}</p>
+                    </div>
+                    <div className="border-r border-stone-200"></div>
+                    <div>
+                      <p className="text-[10px] text-stone-400 uppercase font-medium">Hadir</p>
+                      <p className="text-sm font-bold text-emerald-600">{arrivedCount}</p>
+                    </div>
                   </div>
                 </div>
+              </header>
 
-                {/* Tabel Daftar Tamu Admin */}
-                <div className="lg:col-span-2 bg-stone-50 border border-stone-200/60 p-5 rounded-2xl flex flex-col justify-between">
-                  <div>
-                    <div className="flex justify-between items-center mb-4 gap-2">
-                      <h3 className="text-xs font-bold uppercase tracking-wider text-stone-500">Daftar Master Tamu</h3>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+                <div className="space-y-6">
+                  <div className="bg-stone-50 border border-stone-200/80 p-5 rounded-2xl">
+                    <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide mb-2">Import Master Tamu (CSV)</h3>
+                    <p className="text-[11px] text-stone-500 mb-3">Format baris: <code className="bg-white px-1 py-0.5 border rounded">Nama, Kategori, NoHP, Email, Meja</code></p>
+                    <input
+                      type="file"
+                      accept=".csv, .txt"
+                      onChange={handleFileUpload}
+                      className="w-full text-xs text-stone-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-stone-900 file:text-white hover:file:bg-stone-800 cursor-pointer"
+                    />
+                  </div>
+
+                  <div className="bg-stone-50 border border-stone-200/80 p-5 rounded-2xl">
+                    <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide mb-3">Tambah Data Tamu Manual</h3>
+                    <form onSubmit={handleAddGuest} className="space-y-3">
                       <input
                         type="text"
-                        placeholder="Cari tamu..."
+                        placeholder="Nama Lengkap Tamu"
+                        value={newGuest.name}
+                        onChange={(e) => setNewGuest({ ...newGuest, name: e.target.value })}
+                        className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-xs"
+                        required
+                      />
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="No. WA (0812...)"
+                          value={newGuest.phone}
+                          onChange={(e) => setNewGuest({ ...newGuest, phone: e.target.value })}
+                          className="w-1/2 p-2.5 bg-white border border-stone-200 rounded-xl text-xs"
+                        />
+                        <select
+                          value={newGuest.category}
+                          onChange={(e) => setNewGuest({ ...newGuest, category: e.target.value })}
+                          className="w-1/2 p-2.5 bg-white border border-stone-200 rounded-xl text-xs"
+                        >
+                          <option value="Reguler">Reguler</option>
+                          <option value="VIP">VIP</option>
+                          <option value="Keluarga">Keluarga</option>
+                        </select>
+                      </div>
+                      <input
+                        type="email"
+                        placeholder="Alamat Email (opsional)"
+                        value={newGuest.email}
+                        onChange={(e) => setNewGuest({ ...newGuest, email: e.target.value })}
+                        className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-xs"
+                      />
+                      {eventMode === 'mode1' && (
+                        <div>
+                          <label className="text-[10px] text-stone-500 block mb-1">Alokasi Meja:</label>
+                          <select
+                            value={newGuest.table}
+                            onChange={(e) => setNewGuest({ ...newGuest, table: e.target.value })}
+                            className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-xs bg-white"
+                          >
+                            {masterTables.map(tbl => (
+                              <option key={tbl.name} value={tbl.name}>{tbl.name} ({tbl.category})</option>
+                            ))}
+                          </select>
+                        </div>
+                      )}
+                      <button type="submit" className="w-full bg-stone-900 hover:bg-stone-800 text-white text-xs py-2.5 rounded-xl font-medium transition">
+                        Simpan Tamu
+                      </button>
+                    </form>
+                  </div>
+
+                  <div className="bg-stone-50 border border-stone-200/80 p-5 rounded-2xl">
+                    <div className="flex justify-between items-center mb-2">
+                      <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide">Templat Tautan WA</h3>
+                      <button
+                        onClick={handleSaveWaTemplate}
+                        className="text-[10px] bg-stone-900 text-white px-2.5 py-1 rounded-lg hover:bg-stone-800"
+                      >
+                        Simpan
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-stone-500 mb-2">
+                      Variabel: <code className="bg-white px-1 border rounded">{'{nama}'}</code>, <code className="bg-white px-1 border rounded">{'{id}'}</code>, <code className="bg-white px-1 border rounded">{'{link_ticket}'}</code>
+                    </p>
+                    <textarea
+                      rows="5"
+                      value={waTemplate}
+                      onChange={(e) => setWaTemplate(e.target.value)}
+                      className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-[11px] leading-relaxed focus:outline-none focus:ring-1 focus:ring-stone-400"
+                    />
+                  </div>
+
+                  {eventMode === 'mode1' && (
+                    <div className="bg-stone-50 border border-stone-200/80 p-5 rounded-2xl">
+                      <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide mb-3">Tambah Master Meja / Area</h3>
+                      <form onSubmit={handleAddTable} className="space-y-3">
+                        <input
+                          type="text"
+                          placeholder="Nama Meja/Area (Cth: VIP 03)"
+                          value={newTable.name}
+                          onChange={(e) => setNewTable({ ...newTable, name: e.target.value })}
+                          className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-xs"
+                          required
+                        />
+                        <div className="flex gap-2">
+                          <input
+                            type="number"
+                            placeholder="Kapasitas"
+                            value={newTable.capacity}
+                            onChange={(e) => setNewTable({ ...newTable, capacity: parseInt(e.target.value) || 1 })}
+                            className="w-1/2 p-2.5 bg-white border border-stone-200 rounded-xl text-xs"
+                            min="1"
+                            required
+                          />
+                          <select
+                            value={newTable.category}
+                            onChange={(e) => setNewTable({ ...newTable, category: e.target.value })}
+                            className="w-1/2 p-2.5 bg-white border border-stone-200 rounded-xl text-xs"
+                          >
+                            <option value="Reguler">Reguler</option>
+                            <option value="VIP">VIP</option>
+                            <option value="Keluarga">Keluarga</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-stone-500 block mb-1">Bentuk Visual:</label>
+                          <select
+                            value={newTable.shape}
+                            onChange={(e) => setNewTable({ ...newTable, shape: e.target.value })}
+                            className="w-full p-2.5 bg-white border border-stone-200 rounded-xl text-xs font-medium"
+                          >
+                            <option value="kotak">Kotak (Square)</option>
+                            <option value="lingkaran">Lingkaran (Round)</option>
+                          </select>
+                        </div>
+                        <button type="submit" className="w-full bg-stone-900 hover:bg-stone-800 text-white text-xs py-2.5 rounded-xl font-medium transition">
+                          Tambah ke Denah
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                </div>
+
+                <div className="lg:col-span-2 space-y-6">
+
+                  {eventMode === 'mode1' ? (
+                    <div className="bg-stone-50 border border-stone-200/80 p-5 rounded-2xl">
+                      <div className="flex justify-between items-center mb-3">
+                        <div>
+                          <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide">Interactive Floor Plan (Live Cloud)</h3>
+                          <p className="text-[11px] text-stone-500">Status kursi di denah otomatis berubah saat Usher memindai tamu di lapangan.</p>
+                        </div>
+                        <span className="text-[11px] bg-white text-stone-700 font-medium px-2.5 py-1 rounded-lg border border-stone-200">
+                          {masterTables.length} Area / Meja
+                        </span>
+                      </div>
+
+                      <div
+                        ref={floorRef}
+                        onMouseMove={handleMouseMove}
+                        onMouseUp={handleMouseUp}
+                        onMouseLeave={handleMouseUp}
+                        onTouchMove={handleMouseMove}
+                        onTouchEnd={handleMouseUp}
+                        className="relative w-full h-[420px] bg-white rounded-xl border border-stone-200 overflow-auto shadow-inner select-none cursor-grab active:cursor-grabbing"
+                      >
+                        <div className="absolute w-[1200px] h-[800px] bg-[radial-gradient(#e5e7eb_1px,transparent_1px)] [background-size:24px_24px] pointer-events-none"></div>
+
+                        {masterTables.map(tbl => {
+                          const occupancy = getTableOccupancy(tbl.name);
+                          const isRound = tbl.shape === 'lingkaran';
+
+                          return (
+                            <div
+                              key={tbl.name}
+                              onMouseDown={(e) => handleMouseDown(e, tbl.name)}
+                              onTouchStart={(e) => handleMouseDown(e, tbl.name)}
+                              style={{
+                                transform: `translate(${tbl.x || 50}px, ${tbl.y || 50}px)`,
+                                position: 'absolute',
+                                touchAction: 'none'
+                              }}
+                              className={`p-3.5 shadow-md border transition-colors flex flex-col justify-between cursor-move ${isRound ? 'rounded-full w-44 h-44 aspect-square' : 'rounded-xl w-56 min-h-[150px]'
+                                } ${occupancy.isFull
+                                  ? 'bg-rose-50 border-rose-300 text-rose-900'
+                                  : 'bg-white border-stone-200 text-stone-800'
+                                }`}
+                            >
+                              <div>
+                                <div className="flex justify-between items-start">
+                                  <span className="font-semibold text-xs text-stone-900">{tbl.name}</span>
+                                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getCategoryBadge(tbl.category)}`}>
+                                    {tbl.category}
+                                  </span>
+                                </div>
+                                <p className={`text-[10px] font-medium mt-0.5 ${occupancy.isFull ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                  {occupancy.isFull ? `Penuh (${occupancy.count}/${occupancy.max})` : `${occupancy.count}/${occupancy.max} Terisi`}
+                                </p>
+                              </div>
+
+                              <div className="bg-stone-50 p-1.5 rounded-lg my-1 overflow-y-auto max-h-14 border border-stone-100">
+                                {occupancy.seatedGuests.length === 0 ? (
+                                  <p className="text-[9px] text-stone-400 italic text-center">Kosong</p>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1 justify-center">
+                                    {occupancy.seatedGuests.map(sg => (
+                                      <span key={sg.id} className="text-[9px] bg-stone-200 text-stone-700 px-1.5 py-0.5 rounded font-medium">
+                                        {sg.name.split(' ')[0]}
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="flex justify-between items-center pt-1 border-t border-stone-100">
+                                <span className="text-[9px] text-stone-400">Geser bebas ✥</span>
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleDeleteTable(tbl.name); }}
+                                  className="text-[9px] text-rose-600 hover:underline"
+                                >
+                                  Hapus
+                                </button>
+                              </div>
+
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-stone-50 border border-stone-200/80 p-5 rounded-2xl">
+                      <div className="flex justify-between items-center">
+                        <div>
+                          <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide">Monitoring Standar (Live Cloud)</h3>
+                          <p className="text-[11px] text-stone-500">Pemantauan daftar tamu berbaris rapi berdasarkan status konfirmasi kehadiran.</p>
+                        </div>
+                        <span className="text-[11px] bg-emerald-50 text-emerald-800 font-semibold px-2.5 py-1 rounded-lg border border-emerald-200">
+                          {arrivedCount} dari {guestList.length} Tamu Hadir
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="bg-stone-50 border border-stone-200/80 p-5 rounded-2xl">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-3">
+                      <h3 className="font-semibold text-xs text-stone-800 uppercase tracking-wide">
+                        Database Master Tamu ({filteredAdminGuests.length})
+                      </h3>
+                      <input
+                        type="text"
+                        placeholder="Filter nama / ID / HP..."
                         value={adminSearch}
-                        onChange={e => setAdminSearch(e.target.value)}
-                        className="bg-white border border-stone-200 rounded-xl px-3 py-1.5 text-xs w-48"
+                        onChange={(e) => setAdminSearch(e.target.value)}
+                        className="text-xs bg-white border border-stone-200 px-3 py-1.5 rounded-xl w-full sm:w-64 focus:outline-none focus:ring-1 focus:ring-stone-400"
                       />
                     </div>
 
-                    <div className="max-h-[360px] overflow-y-auto divide-y divide-stone-200/60 border border-stone-200/60 rounded-xl bg-white">
-                      {filteredAdminGuests.length === 0 ? (
-                        <p className="text-center text-xs text-stone-400 py-12">Belum ada data tamu.</p>
-                      ) : (
-                        filteredAdminGuests.map(g => (
-                          <div key={g.id} className="p-3 flex justify-between items-center text-xs">
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-semibold text-stone-900">{g.name}</span>
-                                <span className={`text-[9px] px-2 py-0.5 rounded-full ${getCategoryBadge(g.category)}`}>{g.category}</span>
-                              </div>
-                              <p className="text-[10px] text-stone-500 mt-0.5">ID: {g.id} • Meja: {g.table} • Status: <span className={g.status === 'Sudah Hadir' ? 'text-emerald-700 font-semibold' : 'text-stone-500'}>{g.status}</span></p>
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <button onClick={() => setSelectedQrGuest(g)} title="Pratinjau Kartu QR" className="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-lg text-stone-700">qr</button>
-                              <button onClick={() => printReceipt(g)} title="Cetak Struk 58mm" className="p-1.5 bg-stone-100 hover:bg-stone-200 rounded-lg text-stone-700">🖨️</button>
-                              <button onClick={() => handleSendWhatsApp(g)} title="Kirim WA" className="p-1.5 bg-emerald-50 hover:bg-emerald-100 rounded-lg text-emerald-700">wa</button>
-                              <button onClick={() => handleSendEmail(g)} title="Kirim Email" className="p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg text-blue-700">email</button>
-                              <button onClick={() => handleDeleteGuest(g.id)} title="Hapus" className="p-1.5 bg-rose-50 hover:bg-rose-100 rounded-lg text-rose-700">hapus</button>
-                            </div>
-                          </div>
-                        ))
-                      )}
+                    <div className="max-h-96 overflow-y-auto border border-stone-200 rounded-xl bg-white">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-stone-100 text-stone-500 uppercase font-semibold border-b border-stone-200 sticky top-0">
+                          <tr>
+                            <th className="p-3">ID / Kontak</th>
+                            <th className="p-3">Nama Tamu</th>
+                            <th className="p-3">Kategori</th>
+                            {eventMode === 'mode1' && <th className="p-3">Meja</th>}
+                            <th className="p-3">Status</th>
+                            <th className="p-3 text-center">Undangan (QR / WA / Email)</th>
+                            <th className="p-3 text-center">Aksi</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-stone-100">
+                          {filteredAdminGuests.map(g => (
+                            <tr key={g.id} className="hover:bg-stone-50/50">
+                              <td className="p-3 font-mono text-[11px] text-stone-500">
+                                <p className="font-bold">{g.id}</p>
+                                <p className="text-[10px]">WA: {g.phone}</p>
+                                <p className="text-[10px]">Email: {g.email || '-'}</p>
+                              </td>
+                              <td className="p-3 font-medium text-stone-900">{g.name}</td>
+                              <td className="p-3">
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${getCategoryBadge(g.category)}`}>
+                                  {g.category}
+                                </span>
+                              </td>
+                              {eventMode === 'mode1' && <td className="p-3 font-medium text-stone-900">{g.table}</td>}
+                              <td className="p-3">
+                                <span className={`font-medium ${g.status === 'Sudah Hadir' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                  {g.status} {g.status === 'Sudah Hadir' && `(${g.checkInTime})`}
+                                </span>
+                              </td>
+                              <td className="p-3 text-center">
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    onClick={() => setSelectedQrGuest(g)}
+                                    className="bg-stone-900 hover:bg-stone-700 text-white text-[10px] font-medium px-2 py-1 rounded transition"
+                                    title="Lihat & Download Kartu QR"
+                                  >
+                                    QR
+                                  </button>
+                                  <button
+                                    onClick={() => handleSendWhatsApp(g)}
+                                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-medium px-2 py-1 rounded transition"
+                                    title="Kirim Link E-Ticket via WhatsApp"
+                                  >
+                                    WA
+                                  </button>
+                                  <button
+                                    onClick={() => handleSendEmail(g)}
+                                    className="bg-stone-700 hover:bg-stone-600 text-white text-[10px] font-medium px-2 py-1 rounded transition"
+                                    title="Kirim E-Ticket via Email"
+                                  >
+                                    Email
+                                  </button>
+                                </div>
+                              </td>
+                              <td className="p-3 text-center">
+                                <button onClick={() => handleDeleteGuest(g.id)} className="text-rose-600 hover:text-rose-800 text-[11px] font-medium">
+                                  Hapus
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   </div>
+
                 </div>
+
               </div>
             </div>
           )}
         </div>
 
-        {/* Footer info kecil */}
-        <div className="mt-6 pt-4 border-t border-stone-100 text-center text-[10px] text-stone-400">
-          Digital Guestbook & Table Management Platform • Cloud Synced
-        </div>
       </div>
 
-      {/* Modal Preview Kartu QR */}
+      {/* Modal Preview QR Card */}
       {selectedQrGuest && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full text-center shadow-2xl relative border border-stone-200">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-stone-400 mb-1">Pratinjau E-Ticket Tamu</h3>
-            <h2 className="text-base font-bold text-stone-900 mb-4">{selectedQrGuest.name}</h2>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-stone-200 text-center relative">
+            <button
+              onClick={() => setSelectedQrGuest(null)}
+              className="absolute top-4 right-4 text-stone-400 hover:text-stone-800 text-sm font-bold w-8 h-8 rounded-full bg-stone-100 flex items-center justify-center"
+            >
+              ✕
+            </button>
 
-            <div className="bg-stone-50 p-6 rounded-2xl border border-stone-200 inline-flex flex-col items-center justify-center mb-4 shadow-inner">
-              <div style={{ display: 'none' }}>
-                <QRCodeCanvas id="qr-gen-canvas" value={selectedQrGuest.id} size={240} level="H" includeMargin={true} />
-              </div>
-              <QRCodeCanvas value={selectedQrGuest.id} size={180} level="H" includeMargin={true} />
-              <span className="font-mono text-xs font-bold text-stone-700 mt-3">{selectedQrGuest.id}</span>
+            <span className="text-[10px] font-bold tracking-wider uppercase text-stone-400">Kartu Akses Tamu</span>
+            <h2 className="text-lg font-bold text-stone-900 mt-1">{selectedQrGuest.name}</h2>
+            <p className="text-xs text-stone-500 mb-4">
+              {selectedQrGuest.category} {eventMode === 'mode1' && `• ${selectedQrGuest.table}`}
+            </p>
+
+            <div className="bg-stone-50 p-5 rounded-2xl border border-stone-200 inline-flex flex-col items-center justify-center mb-4">
+              <QRCodeCanvas
+                id="qr-gen-canvas"
+                value={selectedQrGuest.id}
+                size={200}
+                level="H"
+                includeMargin={true}
+              />
+              <span className="font-mono text-xs font-bold text-stone-700 mt-2">{selectedQrGuest.id}</span>
             </div>
-
-            <p className="text-[11px] text-stone-500 mb-6">Tautan Undangan: <br /><code className="text-[10px] bg-stone-100 px-2 py-1 rounded select-all">{getTicketUrl(selectedQrGuest.id)}</code></p>
 
             <div className="flex gap-2">
               <button
                 onClick={() => handleDownloadQrCard(selectedQrGuest)}
-                className="flex-1 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold py-2.5 rounded-xl transition"
+                className="flex-1 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold py-3 rounded-xl transition"
               >
-                Unduh Kartu (PNG)
+                ⬇ Download PNG
               </button>
               <button
-                onClick={() => setSelectedQrGuest(null)}
-                className="px-4 bg-stone-200 hover:bg-stone-300 text-stone-800 text-xs font-semibold py-2.5 rounded-xl transition"
+                onClick={() => handleSendWhatsApp(selectedQrGuest)}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold py-3 rounded-xl transition"
               >
-                Tutup
+                Kirim WA
               </button>
             </div>
           </div>
