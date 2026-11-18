@@ -288,6 +288,71 @@ export default function EventApp() {
     e.target.value = null;
   };
 
+  // --- INTEGRASI PRINTER THERMAL 58mm (RAWBT / BROWSER) ---
+  const printReceipt = (guest) => {
+    const dateStr = new Date().toLocaleString("id-ID", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+
+    const printText =
+      `================================
+   DIGITAL GUESTBOOK INVITATION
+================================
+Tamu    : ${guest.name}
+Kategori: ${guest.category || 'General'}
+Jumlah  : ${guest.pax || 1} Pax
+Meja    : ${guest.table || 'Belum diatur'}
+Waktu   : ${dateStr}
+--------------------------------
+Terima kasih atas kehadiran 
+dan doa restu Anda.
+================================
+`;
+
+    if (bluetoothDevice) {
+      setPrintStatus(`Mencetak struk untuk ${guest.name}...`);
+      return;
+    }
+
+    try {
+      const encodedText = encodeURI(printText);
+      const rawbtUrl = `rawbt:data:text/plain;charset=utf-8,${encodedText}`;
+      window.location.href = rawbtUrl;
+    } catch (error) {
+      console.warn("RawBT tidak terdeteksi, menggunakan cetak standar browser.", error);
+      const printWindow = window.open('', '_blank', 'width=300,height=600');
+      printWindow.document.write(`
+        <html>
+          <head>
+            <title>Cetak Struk - ${guest.name}</title>
+            <style>
+              body { font-family: monospace; font-size: 12px; width: 200px; padding: 10px; }
+              h3 { text-align: center; margin-bottom: 5px; }
+              hr { border: dashed 1px #000; }
+            </style>
+          </head>
+          <body>
+            <h3>Digital Guestbook</h3>
+            <hr/>
+            <p><strong>Tamu:</strong> ${guest.name}<br/>
+            <strong>Kategori:</strong> ${guest.category || 'General'}<br/>
+            <strong>Meja:</strong> ${guest.table || '-'}<br/>
+            <strong>Waktu:</strong> ${dateStr}</p>
+            <hr/>
+            <p style="text-align: center;">Terima kasih</p>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 250);
+    }
+  };
+
   // --- LOGIKA DRAG & DROP KANVAS LUAS (MODE 1) ---
   const handleMouseDown = (e, tableName) => {
     e.stopPropagation();
@@ -412,14 +477,6 @@ export default function EventApp() {
     } catch (error) {
       setPrintStatus('Koneksi printer dibatalkan / gagal.');
     }
-  };
-
-  const printReceipt = (guest) => {
-    if (!bluetoothDevice) {
-      console.log(`[Simulasi Struk]: Cetak untuk ${guest.name} -> Meja: ${guest.table}`);
-      return;
-    }
-    setPrintStatus(`Mencetak struk untuk ${guest.name}...`);
   };
 
   const processCheckIn = async (guestIdentifier, customTable = null) => {
@@ -768,8 +825,7 @@ export default function EventApp() {
                             <button
                               key={g.id}
                               onClick={() => processCheckIn(g.id)}
-                              className={`text-[10px] px-2.5 py-1 rounded font-medium ${g.status === 'Sudah Hadir' ? 'bg-emerald-800 text-emerald-100' : 'bg-stone-700 hover:bg-stone-600 text-white'
-                                }`}
+                              className={`text-[10px] px-2.5 py-1 rounded font-medium ${g.status === 'Sudah Hadir' ? 'bg-emerald-800 text-emerald-100' : 'bg-stone-700 hover:bg-stone-600 text-white'}`}
                             >
                               {g.name.split(' ')[0]} {g.status === 'Sudah Hadir' && '✓'}
                             </button>
@@ -876,6 +932,12 @@ export default function EventApp() {
                           {eventMode === 'mode1' ? `Meja: ${scanResult.table}` : 'Tamu Diterima ✓'}
                         </p>
                       </div>
+                      <button
+                        onClick={() => printReceipt(scanResult)}
+                        className="mt-3 w-full bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold py-2.5 rounded-xl transition flex items-center justify-center gap-2"
+                      >
+                        <span>🖨️</span> Cetak Struk Meja 58mm
+                      </button>
                     </div>
                   ) : (
                     <div className="bg-stone-50 border border-dashed border-stone-300 p-4 rounded-2xl text-center text-stone-400 text-xs mb-4">
@@ -903,7 +965,16 @@ export default function EventApp() {
                             </div>
                             {eventMode === 'mode1' && <p className="text-[11px] text-stone-500">Meja: <span className="text-stone-900">{g.table}</span></p>}
                           </div>
-                          <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">{g.checkInTime}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-[11px]">{g.checkInTime}</span>
+                            <button
+                              onClick={() => printReceipt(g)}
+                              className="text-[10px] bg-stone-900 text-white px-2.5 py-1 rounded-lg hover:bg-stone-800"
+                              title="Cetak Struk Thermal"
+                            >
+                              🖨️ Cetak
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1220,7 +1291,7 @@ export default function EventApp() {
                             {eventMode === 'mode1' && <th className="p-3">Meja</th>}
                             <th className="p-3">Status</th>
                             <th className="p-3 text-center">Undangan (QR / WA / Email)</th>
-                            <th className="p-3 text-center">Aksi</th>
+                            <th className="p-3 text-center">Aksi (Cetak / Hapus)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-stone-100">
@@ -1269,9 +1340,18 @@ export default function EventApp() {
                                 </div>
                               </td>
                               <td className="p-3 text-center">
-                                <button onClick={() => handleDeleteGuest(g.id)} className="text-rose-600 hover:text-rose-800 text-[11px] font-medium">
-                                  Hapus
-                                </button>
+                                <div className="flex items-center justify-center gap-1.5">
+                                  <button
+                                    onClick={() => printReceipt(g)}
+                                    className="bg-stone-100 hover:bg-stone-200 text-stone-700 text-[10px] font-medium px-2.5 py-1 rounded transition"
+                                    title="Cetak Struk Thermal"
+                                  >
+                                    🖨️ Cetak
+                                  </button>
+                                  <button onClick={() => handleDeleteGuest(g.id)} className="text-rose-600 hover:text-rose-800 text-[11px] font-medium px-1">
+                                    Hapus
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           ))}
